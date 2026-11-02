@@ -1,33 +1,53 @@
 # dockerfile-audit-cli
 
-Local, offline Dockerfile security linting from the command line or a
-GitHub Action — no IDE required. Flags every Dockerfile whose **final
-build stage runs as root**: the stage a plain `docker build` actually
-runs never drops to a non-root `USER`, so the container starts as root
-by default — a real privilege-escalation / container-escape risk that
-Docker's own `USER` guide calls out.
+Local, offline Dockerfile security & hygiene linting from the command
+line or a GitHub Action — no IDE required. Four static checks:
+
+- **`DOCKERFILE_MISSING_USER`** — the final build stage runs as root
+  (no non-root `USER` in the stage a plain `docker build` actually
+  runs): a real privilege-escalation / container-escape risk Docker's
+  own `USER` guide calls out.
+- **`DOCKERFILE_UNUSED_STAGE`** — a named build stage no later `COPY
+  --from=` ever uses, and not the final stage: wasted build time.
+- **`DOCKERFILE_EXPENSIVE_RUN`** — a `RUN` matching a well-documented
+  layer-bloating pattern (`apt-get install` without
+  `--no-install-recommends`, `apt-get update` without cleaning the apt
+  lists in the same `RUN`, `pip install` without `--no-cache-dir`,
+  `npm install` vs `npm ci`, a `curl`/`wget` download left in the
+  layer).
+- **`DOCKERFILE_COMBINABLE_RUN`** — consecutive `RUN` instructions that
+  could be one, to save per-layer overhead.
 
 **Status: v0.1, early.** Built as a companion channel to Gap Hunter
-Labs' [dockerfile-missing-user-companion](https://github.com/GapHunterLabs/dockerfile-missing-user-companion)
-IntelliJ plugin — same detection rules
-([`DockerfileUserScanner.kt`](src/main/kotlin/dev/gaphunter/dockerfileaudit/DockerfileUserScanner.kt)
-is a manual, deliberate port, not a shared module — see the file header
-for why), packaged for teams that don't use a JetBrains IDE, or want
-the check in CI rather than (or in addition to) the editor.
+Labs' `dockerfile-missing-user-companion`,
+`dockerfile-unused-stage-companion` and `dockerfile-layer-size-companion`
+IntelliJ plugins — same detection logic, manually and deliberately
+ported into standalone, IntelliJ-free scanners (see each file header
+for why it's a copy, not a shared module), packaged for teams that
+don't use a JetBrains IDE, or want the checks in CI rather than (or in
+addition to) the editor.
 
-One check ships in v0.1 (missing non-root `USER` in the final stage).
-The CLI is structured to grow into a small suite of pure-text
-Dockerfile checks as more of them are ported from the catalog; it is
-not, and does not claim to be, a full Dockerfile linter like hadolint.
+It is not, and does not claim to be, a full Dockerfile linter like
+hadolint. Every finding is reported at `warning` level and counts
+toward the exit code; use `--no-fail` (or the action's
+`fail-on-find: false`) if you want the hygiene checks to report without
+failing the build.
 
 ## Why a manual port instead of one shared module?
 
-This project and the IntelliJ plugin build independently — one is a
-plain JVM app, the other depends on the IntelliJ Platform Gradle
-plugin. Sharing the scanner as a real Gradle module was possible but
-not done for v0.1; keeping two copies in sync by hand is a known,
+This project and the IntelliJ plugins build independently — one is a
+plain JVM app, the others depend on the IntelliJ Platform Gradle
+plugin. Sharing the scanners as a real Gradle module was possible but
+not done for v0.1; keeping the copies in sync by hand is a known,
 deliberate trade-off, not an oversight. If you change the detection
 rules in one place, mirror the change in the other.
+
+The byte-size *estimate* that `dockerfile-layer-size-companion` shows
+inline in the editor is deliberately **not** ported here: it's an
+estimate that needs the real build context on disk, and a per-`COPY`
+size note is editor feedback, not a CI finding. Only that plugin's
+RUN-pattern checks (clear best-practice violations) cross over to this
+CLI.
 
 ## Install / build
 
@@ -52,6 +72,9 @@ java -jar dockerfile-audit-cli-0.1.0.jar [path] [options]
   --version         Print version and exit
   -h, --help        Print this help and exit
 
+Checks: DOCKERFILE_MISSING_USER, DOCKERFILE_UNUSED_STAGE,
+        DOCKERFILE_EXPENSIVE_RUN, DOCKERFILE_COMBINABLE_RUN
+
 Exit codes: 0 = no findings (or --no-fail), 1 = findings reported, 2 = usage/path error.
 ```
 
@@ -63,9 +86,11 @@ Example:
 
 ```bash
 $ java -jar dockerfile-audit-cli-0.1.0.jar ./my-repo
-my-repo/services/api/Dockerfile:1:1: [DOCKERFILE_MISSING_USER] Final build stage has no non-root USER instruction -- the container runs as root by default
+my-repo/Dockerfile:1:1: [DOCKERFILE_UNUSED_STAGE] Build stage 'builder' is never used by a later COPY --from and is not the final stage -- wasted build time
+my-repo/Dockerfile:4:1: [DOCKERFILE_MISSING_USER] Final build stage has no non-root USER instruction -- the container runs as root by default
+my-repo/Dockerfile:5:1: [DOCKERFILE_EXPENSIVE_RUN] apt-get install without --no-install-recommends ... | apt-get update without rm -rf /var/lib/apt/lists/* in the SAME RUN ...
 
-dockerfile-audit-cli: 1 finding(s) in ./my-repo
+dockerfile-audit-cli: 3 finding(s) in ./my-repo
 ```
 
 ## GitHub Action
@@ -116,17 +141,20 @@ specific environment until it has.
 It reasons over a Dockerfile's real multi-stage structure as plain
 text, not a full Docker parser. Known blind spots, stated honestly:
 
-- A `USER` instruction split across lines with a trailing `\` is not
-  recognised (single-line match only) — rare, since the instruction is
-  short, but a real gap.
-- It never checks that the referenced user actually exists (`USER
-  appuser` with no prior `RUN useradd appuser` is a different problem,
-  out of scope here).
-- It decides root-ness from the *last effective* `USER` in the final
-  stage, following `FROM <earlier-stage>` chains inside the same file;
-  it does not resolve `USER` baked into an external base image pulled
-  from a registry (it can't see inside that image without a network
-  call, which this tool never makes).
+- **Missing USER:** a `USER` split across lines with a trailing `\`
+  isn't recognised (single-line match only); it never checks the
+  referenced user actually exists; and it can't see `USER` baked into
+  an external base image pulled from a registry (no network call — that
+  would mean inspecting the image).
+- **Unused stage:** a stage used only via an explicit `docker build
+  --target=<name>` (not visible in the file) is flagged as a false
+  positive — the tool can't see build invocations outside the
+  Dockerfile.
+- **Expensive RUN:** each check is a coarse substring/regex match on
+  the command text, not a shell parse. It catches the common,
+  well-documented cases, and will miss a pattern expressed in an
+  unusual way (and could, in principle, over-match an unusual command
+  that merely looks like one).
 
 It's meant to catch the common, careless case cheaply, not to replace
 a dedicated container-hardening product for anything security-critical.

@@ -15,8 +15,8 @@ no telemetry, no crash reports, no personally identifiable information.
 ## What it reads
 
 It reads the Dockerfiles under whatever path you point it at (default:
-the current directory), to check whether their final build stage runs
-as root. That's the tool's whole job — nothing is read that you didn't
+the current directory), to run its static security and hygiene checks
+on them. That's the tool's whole job — nothing is read that you didn't
 ask it to scan, and nothing read is written anywhere except the report
 you asked for (stdout, or the file passed to `--out`).
 

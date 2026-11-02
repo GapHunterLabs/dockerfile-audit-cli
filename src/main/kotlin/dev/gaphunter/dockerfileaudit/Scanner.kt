@@ -13,6 +13,9 @@ data class ScanHit(
 object Scanner {
 
     const val MISSING_USER = "DOCKERFILE_MISSING_USER"
+    const val UNUSED_STAGE = "DOCKERFILE_UNUSED_STAGE"
+    const val EXPENSIVE_RUN = "DOCKERFILE_EXPENSIVE_RUN"
+    const val COMBINABLE_RUN = "DOCKERFILE_COMBINABLE_RUN"
 
     private const val MISSING_USER_MESSAGE =
         "Final build stage has no non-root USER instruction -- the container runs as root by default"
@@ -58,8 +61,41 @@ object Scanner {
             // scan over one file.
             return emptyList()
         }
-        return DockerfileUserScanner.scan(text).map { hit ->
+        val hits = mutableListOf<ScanHit>()
+
+        // Security: the final build stage runs as root.
+        DockerfileUserScanner.scan(text).mapTo(hits) { hit ->
             ScanHit(relativePath, hit.anchorLineNumber, 1, MISSING_USER, MISSING_USER_MESSAGE)
         }
+
+        // Hygiene: a named build stage nothing ever copies from.
+        DockerfileStageScanner.scan(text).mapTo(hits) { hit ->
+            ScanHit(
+                relativePath, hit.lineNumber, 1, UNUSED_STAGE,
+                "Build stage '${hit.stageName}' is never used by a later COPY --from and is not the final stage -- wasted build time",
+            )
+        }
+
+        // Hygiene: known-expensive RUN patterns that bloat a layer.
+        val instructions = DockerfileParser.parse(text)
+        for (instruction in instructions) {
+            if (!DockerfileParser.isRunKeyword(instruction.keyword)) continue
+            val reasons = ExpensiveRunPatterns.check(instruction)
+            if (reasons.isNotEmpty()) {
+                hits += ScanHit(
+                    relativePath, instruction.lineNumber + 1, 1, EXPENSIVE_RUN,
+                    reasons.joinToString(" | "),
+                )
+            }
+        }
+        for (group in ExpensiveRunPatterns.findCombinableRuns(instructions)) {
+            val last = group.last()
+            hits += ScanHit(
+                relativePath, last.lineNumber + 1, 1, COMBINABLE_RUN,
+                "${group.size} consecutive RUN instructions could be combined into one to save per-layer overhead",
+            )
+        }
+
+        return hits
     }
 }

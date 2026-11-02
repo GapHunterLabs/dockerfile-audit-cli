@@ -1,5 +1,5 @@
 name: 'Gap Hunter Labs Dockerfile Audit'
-description: 'Local, offline Dockerfile security linting -- flags final build stages that run as root (no non-root USER). SARIF output for GitHub code scanning. Same detection engine as dockerfile-missing-user-companion, no network calls.'
+description: 'Local, offline Dockerfile security & hygiene linting -- final stage running as root, unused build stages, and layer-bloating RUN patterns. SARIF output for GitHub code scanning. Same detection engines as the dockerfile-* companion plugins, no network calls.'
 author: 'Gap Hunter Labs'
 branding:
   icon: 'shield'

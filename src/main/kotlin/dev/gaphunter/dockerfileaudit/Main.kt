@@ -74,12 +74,15 @@ private fun usageError(message: String): Nothing {
 private fun printHelp() {
     println(
         """
-        $TOOL $VERSION -- local, offline Dockerfile security linting
-        (ported from Gap Hunter Labs' dockerfile-missing-user-companion detection engine)
+        $TOOL $VERSION -- local, offline Dockerfile security & hygiene linting
+        (ported from Gap Hunter Labs' dockerfile-* companion detection engines)
 
         Scans files recognised as Dockerfiles by name (Dockerfile, *.dockerfile,
-        Dockerfile.<tag>) and flags every final build stage that runs as root --
-        no non-root USER instruction in the stage that `docker build` actually runs.
+        Dockerfile.<tag>) and reports:
+          DOCKERFILE_MISSING_USER    final build stage runs as root (no non-root USER)
+          DOCKERFILE_UNUSED_STAGE    named stage never used by a later COPY --from
+          DOCKERFILE_EXPENSIVE_RUN   RUN matches a known layer-bloating pattern
+          DOCKERFILE_COMBINABLE_RUN  consecutive RUNs that could be one instruction
 
         Usage: $TOOL [path] [options]
 
@@ -107,6 +110,9 @@ internal fun renderText(hits: List<ScanHit>, root: File): String {
 
 private val RULE_DESCRIPTIONS = mapOf(
     Scanner.MISSING_USER to "Final build stage runs as root (no non-root USER instruction)",
+    Scanner.UNUSED_STAGE to "Named build stage never referenced by a later COPY --from",
+    Scanner.EXPENSIVE_RUN to "RUN instruction matches a known layer-bloating pattern",
+    Scanner.COMBINABLE_RUN to "Consecutive RUN instructions that could be combined into one",
 )
 
 internal fun renderSarif(hits: List<ScanHit>): String {

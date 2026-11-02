@@ -73,4 +73,29 @@ class ScannerTest {
         assertEquals(1, hits.size)
         assertEquals("Dockerfile.prod", hits[0].file)
     }
+
+    @Test
+    fun `reports all four check kinds on a Dockerfile that trips each one`() {
+        val root = tempTree()
+        write(
+            root, "Dockerfile",
+            """
+            FROM golang:1.21 AS builder
+            RUN go build -o app
+
+            FROM node:20
+            RUN apt-get update && apt-get install -y curl
+            RUN echo one
+            RUN echo two
+            CMD ["node"]
+            """,
+        )
+
+        val kinds = Scanner.scan(root).map { it.kind }
+
+        assertTrue(kinds.contains(Scanner.MISSING_USER))   // final stage runs as root
+        assertTrue(kinds.contains(Scanner.UNUSED_STAGE))   // 'builder' never copied from
+        assertTrue(kinds.contains(Scanner.EXPENSIVE_RUN))  // apt-get update/install patterns
+        assertTrue(kinds.contains(Scanner.COMBINABLE_RUN)) // three consecutive RUNs
+    }
 }

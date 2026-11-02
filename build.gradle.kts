@@ -30,13 +30,19 @@ tasks.test {
 // `shadowDistTar` tasks ("You can't map a property that does not exist:
 // propertyName=mainClassName") -- a real compatibility bug between the
 // two plugins' application-integration path, not something fixable from
-// this project's build file. Setting Main-Class directly on the jar
-// manifest below sidesteps that whole integration surface. (Same note,
-// same reason, as the sibling secret-scanner-cli build.)
+// this project's build file. The shadowJar sets Main-Class directly on
+// its own manifest below, sidestepping that whole integration surface.
+//
+// The default `jar` task is disabled on purpose. With shadowJar's
+// archiveClassifier set to "" (for a clean `dockerfile-audit-cli-0.1.0.jar`
+// name), the thin `jar` task would otherwise write to that SAME path --
+// whichever task ran last would win, and when the thin jar won the
+// result was a stdlib-less jar that died at runtime with
+// NoClassDefFoundError (kotlin/KotlinNothingValueException). This
+// project ships only the fat jar, so there is no reason to produce the
+// thin one at all; disabling it removes the output collision entirely.
 tasks.jar {
-    manifest {
-        attributes("Main-Class" to "dev.gaphunter.dockerfileaudit.MainKt")
-    }
+    enabled = false
 }
 
 // A single, dependency-free fat jar is the whole point of this CLI: a
