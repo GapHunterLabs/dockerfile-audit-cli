@@ -1,0 +1,76 @@
+name: 'Gap Hunter Labs Dockerfile Audit'
+description: 'Local, offline Dockerfile security linting -- flags final build stages that run as root (no non-root USER). SARIF output for GitHub code scanning. Same detection engine as dockerfile-missing-user-companion, no network calls.'
+author: 'Gap Hunter Labs'
+branding:
+  icon: 'shield'
+  color: 'blue'
+
+inputs:
+  path:
+    description: 'File or directory to scan, relative to the workspace.'
+    required: false
+    default: '.'
+  fail-on-find:
+    description: "Fail this step if any finding is reported. Set to 'false' to report-only."
+    required: false
+    default: 'true'
+  upload-sarif:
+    description: "Upload results to GitHub Code Scanning via github/codeql-action/upload-sarif. Requires the calling workflow to grant 'security-events: write' and to have Code Scanning available (public repos have this for free; private repos need GitHub Advanced Security)."
+    required: false
+    default: 'true'
+
+outputs:
+  finding-count:
+    description: 'Number of findings reported.'
+    value: ${{ steps.scan.outputs.finding-count }}
+  sarif-file:
+    description: 'Path to the generated SARIF file.'
+    value: ${{ steps.scan.outputs.sarif-file }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up JDK 21
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '21'
+        cache: 'gradle'
+
+    - name: Build dockerfile-audit-cli
+      shell: bash
+      # Builds from this action's own source on every run rather than
+      # fetching a pre-built release jar -- v0.1, deliberately simple.
+      # A real release pipeline (tag -> build -> attach jar to a GitHub
+      # Release -> this step downloads it instead) is a known follow-up,
+      # not done yet: it would save every consumer this Gradle build.
+      run: |
+        cd "${{ github.action_path }}"
+        chmod +x ./gradlew
+        ./gradlew shadowJar --console=plain -q
+
+    - name: Run scan
+      id: scan
+      shell: bash
+      run: |
+        set -eo pipefail
+        JAR=$(ls "${{ github.action_path }}"/build/libs/dockerfile-audit-cli-*.jar | head -n1)
+        SARIF_PATH="dockerfile-audit-results.sarif"
+        java -jar "$JAR" "${{ inputs.path }}" --format sarif --out "$SARIF_PATH" --no-fail
+        COUNT=$(jq '.runs[0].results | length' "$SARIF_PATH")
+        echo "finding-count=$COUNT" >> "$GITHUB_OUTPUT"
+        echo "sarif-file=$SARIF_PATH" >> "$GITHUB_OUTPUT"
+        echo "dockerfile-audit-cli: $COUNT finding(s) in ${{ inputs.path }}"
+        if [ "$COUNT" -gt 0 ]; then
+          java -jar "$JAR" "${{ inputs.path }}" --no-fail
+        fi
+        if [ "$COUNT" -gt 0 ] && [ "${{ inputs.fail-on-find }}" = "true" ]; then
+          echo "::error::dockerfile-audit-cli found $COUNT Dockerfile stage(s) running as root -- see the log above or the uploaded SARIF report."
+          exit 1
+        fi
+
+    - name: Upload SARIF to Code Scanning
+      if: always() && inputs.upload-sarif == 'true'
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ steps.scan.outputs.sarif-file }}
