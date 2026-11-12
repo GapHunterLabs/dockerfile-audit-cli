@@ -7,8 +7,10 @@ line or a GitHub Action: no IDE required. Four static checks:
   (no non-root `USER` in the stage a plain `docker build` actually
   runs): a real privilege-escalation / container-escape risk Docker's
   own `USER` guide calls out.
-- **`DOCKERFILE_UNUSED_STAGE`**: a named build stage no later `COPY
-  --from=` ever uses, and not the final stage: wasted build time.
+- **`DOCKERFILE_UNUSED_STAGE`**: a named build stage no later `FROM`
+  or `COPY --from=` ever uses, and not the final stage: wasted build
+  time. Inheriting from an earlier stage (`FROM base AS final`) counts
+  as a use, so the usual `base`/`build`/`publish`/`final` chain is clean.
 - **`DOCKERFILE_EXPENSIVE_RUN`**: a `RUN` matching a well-documented
   layer-bloating pattern (`apt-get install` without
   `--no-install-recommends`, `apt-get update` without cleaning the apt
@@ -86,7 +88,7 @@ Example:
 
 ```bash
 $ java -jar dockerfile-audit-cli-0.1.0.jar ./my-repo
-my-repo/Dockerfile:1:1: [DOCKERFILE_UNUSED_STAGE] Build stage 'builder' is never used by a later COPY --from and is not the final stage -- wasted build time
+my-repo/Dockerfile:1:1: [DOCKERFILE_UNUSED_STAGE] Build stage 'builder' is never used by a later FROM or COPY --from and is not the final stage -- wasted build time
 my-repo/Dockerfile:4:1: [DOCKERFILE_MISSING_USER] Final build stage has no non-root USER instruction -- the container runs as root by default
 my-repo/Dockerfile:5:1: [DOCKERFILE_EXPENSIVE_RUN] apt-get install without --no-install-recommends ... | apt-get update without rm -rf /var/lib/apt/lists/* in the SAME RUN ...
 

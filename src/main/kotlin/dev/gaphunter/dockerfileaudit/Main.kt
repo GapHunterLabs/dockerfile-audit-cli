@@ -80,7 +80,7 @@ private fun printHelp() {
         Scans files recognised as Dockerfiles by name (Dockerfile, *.dockerfile,
         Dockerfile.<tag>) and reports:
           DOCKERFILE_MISSING_USER    final build stage runs as root (no non-root USER)
-          DOCKERFILE_UNUSED_STAGE    named stage never used by a later COPY --from
+          DOCKERFILE_UNUSED_STAGE    named stage never used by a later FROM or COPY --from
           DOCKERFILE_EXPENSIVE_RUN   RUN matches a known layer-bloating pattern
           DOCKERFILE_COMBINABLE_RUN  consecutive RUNs that could be one instruction
 
@@ -110,7 +110,7 @@ internal fun renderText(hits: List<ScanHit>, root: File): String {
 
 private val RULE_DESCRIPTIONS = mapOf(
     Scanner.MISSING_USER to "Final build stage runs as root (no non-root USER instruction)",
-    Scanner.UNUSED_STAGE to "Named build stage never referenced by a later COPY --from",
+    Scanner.UNUSED_STAGE to "Named build stage never referenced by a later FROM or COPY --from",
     Scanner.EXPENSIVE_RUN to "RUN instruction matches a known layer-bloating pattern",
     Scanner.COMBINABLE_RUN to "Consecutive RUN instructions that could be combined into one",
 )

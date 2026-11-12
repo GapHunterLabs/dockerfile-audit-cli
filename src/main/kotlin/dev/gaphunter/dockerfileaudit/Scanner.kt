@@ -72,7 +72,7 @@ object Scanner {
         DockerfileStageScanner.scan(text).mapTo(hits) { hit ->
             ScanHit(
                 relativePath, hit.lineNumber, 1, UNUSED_STAGE,
-                "Build stage '${hit.stageName}' is never used by a later COPY --from and is not the final stage -- wasted build time",
+                "Build stage '${hit.stageName}' is never used by a later FROM or COPY --from and is not the final stage -- wasted build time",
             )
         }
 
