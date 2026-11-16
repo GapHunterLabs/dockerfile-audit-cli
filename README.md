@@ -71,8 +71,14 @@ java -jar dockerfile-audit-cli-0.1.0.jar [path] [options]
   --format <fmt>    Output format: text (default) or sarif
   --out <file>      Write output to a file instead of stdout
   --no-fail         Always exit 0, even if findings are reported
+  --banner          Always print the startup banner (even piped or sarif)
+  --no-banner       Never print the startup banner
   --version         Print version and exit
   -h, --help        Print this help and exit
+
+The startup banner shows by default only in an interactive terminal with
+--format text and no --out: never when the output is piped, redirected, or
+meant for a script or CI to parse (so a GitHub Action run never sees it).
 
 Checks: DOCKERFILE_MISSING_USER, DOCKERFILE_UNUSED_STAGE,
         DOCKERFILE_EXPENSIVE_RUN, DOCKERFILE_COMBINABLE_RUN
